@@ -1,28 +1,28 @@
 {
 	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
 	"type": "connection",
-	"id": "your-module-name",
-	"name": "your-module-name",
-	"shortname": "module-shortname",
-	"description": "A short one line description of your module",
+	"id": "fritz-fritzbox",
+	"name": "FRITZ!Box",
+	"shortname": "FRITZ!Box",
+	"description": "Router status and smart home control for a FRITZ!Box",
 	"version": "0.0.0",
 	"license": "MIT",
-	"repository": "git+https://github.com/bitfocus/companion-module-your-module-name.git",
-	"bugs": "https://github.com/bitfocus/companion-module-your-module-name/issues",
+	"repository": "git+https://github.com/bitfocus/companion-module-fritz-fritzbox.git",
+	"bugs": "https://github.com/bitfocus/companion-module-fritz-fritzbox/issues",
 	"maintainers": [
 		{
-			"name": "Your name",
-			"email": "Your email"
+			"name": "Robert Skiba",
+			"email": "info@konferenzregie.de"
 		}
 	],
 	"runtime": {
-		"type": "node26",
+		"type": "node22",
 		"api": "nodejs-ipc",
 		"apiVersion": "0.0.0",
 		"entrypoint": "../dist/main.js"
 	},
 	"legacyIds": [],
-	"manufacturer": "Your company",
-	"products": ["Your product"],
-	"keywords": []
+	"manufacturer": "FRITZ!",
+	"products": ["FRITZ!Box"],
+	"keywords": ["router", "tr-064", "smart home", "dect", "wlan", "wifi", "cable", "dsl", "fiber", "network"]
 }

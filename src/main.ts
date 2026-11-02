@@ -54,6 +54,10 @@ const DEVICE_INFO_MS = 600_000
 const AFTER_ACTION_MS = [1_000, 4_000]
 /** After a router action, when to read the status again. */
 const AFTER_ROUTER_ACTION_MS = [1_500, 5_000]
+/** How long a request for the diagnostics report waits for it before showing the waiting page. */
+const DIAGNOSTICS_WAIT_MS = 3_000
+/** How long a built diagnostics report is handed out before a new one is built. */
+const DIAGNOSTICS_FRESH_MS = 120_000
 /** The longest a "button pressed recently" feedback can stay active: the maximum of its option. */
 const BUTTON_WINDOW_MAX_S = 3600
 /** After a reconnect, when to read the status again: the line drops and comes back within seconds. */
@@ -126,6 +130,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#routerChecks: NodeJS.Timeout[] = []
 	/** Re-checks "button pressed recently" every second while a press is recent. */
 	#buttonTimer: NodeJS.Timeout | undefined
+	/** The last diagnostics report, and the build in progress, if any. */
+	#diagnosticsReport: { at: number; body: string } | undefined
+	#diagnosticsBuilding: Promise<void> | undefined
 	#routerInFlight = false
 	#smartHomeInFlight = false
 	/** Set when a smart home read has to follow the current one, e.g. after switching to AHA. */
@@ -294,20 +301,40 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	/**
 	 * Serves the diagnostics report through the web server of Companion, at
 	 * /instance/<connection label>/diagnostics, as a file download. Modules run without write access
-	 * to the disk, so the browser saving it is the way to a file a beta tester can send in.
+	 * to the disk, so the browser saving it is the way to a file a user can send in.
 	 */
 	async handleHttpRequest(request: CompanionHTTPRequest): Promise<CompanionHTTPResponse> {
 		const path = request.path.replace(/\/+$/, '')
 		if (path === '/diagnostics' || path === '/diagnostics.json') {
-			const report = await this.buildDiagnostics()
+			// Companion gives a module 5 s to answer, and a report over the internet can take longer.
+			// So it is built in the background; whatever is not ready within a few seconds is served
+			// by a page that reloads itself until the file is there.
+			let report = this.#freshDiagnostics()
+			if (!report) {
+				await Promise.race([this.prepareDiagnostics(), delay(DIAGNOSTICS_WAIT_MS)])
+				report = this.#freshDiagnostics()
+			}
+			if (report) {
+				return {
+					status: 200,
+					headers: {
+						'Content-Type': 'application/json; charset=utf-8',
+						'Content-Disposition': `attachment; filename="${reportFileName(new Date(report.at))}"`,
+						'Cache-Control': 'no-store',
+					},
+					body: report.body,
+				}
+			}
 			return {
 				status: 200,
-				headers: {
-					'Content-Type': 'application/json; charset=utf-8',
-					'Content-Disposition': `attachment; filename="${reportFileName()}"`,
-					'Cache-Control': 'no-store',
-				},
-				body: `${JSON.stringify(report, null, 2)}\n`,
+				headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+				body:
+					'<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2">' +
+					'<title>FRITZ!Box diagnostics</title></head>' +
+					'<body style="font-family:sans-serif;max-width:40em;margin:2em auto">' +
+					'<h1>Preparing the diagnostics report …</h1><p>The module is asking the box. This page ' +
+					'reloads by itself and the report is downloaded as soon as it is ready, usually within ' +
+					'half a minute.</p></body></html>',
 			}
 		}
 		if (path === '') {
@@ -325,8 +352,29 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		return { status: 404, body: 'Not found' }
 	}
 
+	/** Starts building a diagnostics report unless one is being built; resolves when it is done. */
+	async prepareDiagnostics(): Promise<void> {
+		this.#diagnosticsBuilding ??= (async () => {
+			try {
+				const report = await this.buildDiagnostics()
+				this.#diagnosticsReport = { at: Date.now(), body: `${JSON.stringify(report, null, 2)}\n` }
+			} catch (error) {
+				this.log('error', `Diagnostics report could not be built: ${describe(error)}`)
+			} finally {
+				this.#diagnosticsBuilding = undefined
+			}
+		})()
+		return this.#diagnosticsBuilding
+	}
+
+	/** The last report, if it is recent enough to hand out. */
+	#freshDiagnostics(): { at: number; body: string } | undefined {
+		const report = this.#diagnosticsReport
+		return report && Date.now() - report.at < DIAGNOSTICS_FRESH_MS ? report : undefined
+	}
+
 	/**
-	 * Builds a diagnostics report a beta tester can send in: what the box offers and answers,
+	 * Builds a diagnostics report a user can send in: what the box offers and answers,
 	 * the smart home overview as sent, the recent requests and problems. Passwords, session ids and
 	 * digest data never go in; addresses, names and serial numbers are replaced by placeholders.
 	 */
@@ -425,6 +473,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		// when the box shows the same devices as before.
 		this.#smartHomeFingerprint = ''
 		this.#definitionsFingerprint = ''
+		// A report of the previous settings would describe another box or route.
+		this.#diagnosticsReport = undefined
 
 		const { username } = this.config
 		const address = parseAddress(this.config.host)
@@ -599,6 +649,14 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				return
 			}
 
+			// The connection state is known now, so it is shown at once. The slow part (addresses,
+			// WLAN, a host list of maybe hundreds of devices) can take a while over the internet.
+			this.#clearProblem('router')
+			if (!this.connected) this.log('info', `Connected to ${this.router.model || this.config.host}`)
+			this.connected = true
+			this.#setStatus('router', InstanceStatus.Ok)
+			this.#publishRouter(address)
+
 			const now = Date.now()
 			if (now - this.#lastSlowPoll >= SLOW_POLL_MS) {
 				const withDeviceInfo = now - this.#lastDeviceInfo >= DEVICE_INFO_MS
@@ -606,33 +664,34 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				if (generation !== this.#generation) return
 				this.#lastSlowPoll = now
 				if (withDeviceInfo) this.#lastDeviceInfo = now
+				this.#publishRouter(address)
 			}
 
 			this.#reportProblems(problems)
-			this.#clearProblem('router')
-			if (!this.connected) this.log('info', `Connected to ${this.router.model || this.config.host}`)
-			this.connected = true
-			this.#setStatus('router', InstanceStatus.Ok)
-			this.#rebuildDefinitionsIfNeeded()
-			this.setVariableValues({
-				...routerVariableValues(this.router),
-				device_connected: 'true',
-				device_web_url: webUrlFor(address),
-			})
-			this.checkFeedbacks(
-				'connected',
-				'internet_connected',
-				'wan_link_up',
-				'wlan_enabled',
-				'host_active',
-				'host_blocked',
-				'throughput',
-			)
 		} catch (error) {
 			if (generation === this.#generation) this.#routerFailed({ area: 'router', error })
 		} finally {
 			this.#routerInFlight = false
 		}
+	}
+
+	/** Publishes the router values and lets the router feedbacks follow. */
+	#publishRouter(address: BoxAddress): void {
+		this.#rebuildDefinitionsIfNeeded()
+		this.setVariableValues({
+			...routerVariableValues(this.router),
+			device_connected: 'true',
+			device_web_url: webUrlFor(address),
+		})
+		this.checkFeedbacks(
+			'connected',
+			'internet_connected',
+			'wan_link_up',
+			'wlan_enabled',
+			'host_active',
+			'host_blocked',
+			'throughput',
+		)
 	}
 
 	#routerFailed(problem: ReadProblem): void {
@@ -846,4 +905,9 @@ function describeRoute(client: Tr064Client): string {
 
 function describe(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
+}
+
+/** Waits a while without keeping the process alive for it. */
+async function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms).unref())
 }

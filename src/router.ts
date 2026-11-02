@@ -87,6 +87,8 @@ export interface MobileInfo {
 	/** Signal strength (RSRP) in dBm. */
 	signalRsrp: number | undefined
 	provider: string
+	/** Number of mobile cells the stick sees. */
+	cells: number
 	/** Seconds the mobile connection has been up. */
 	uptime: number | undefined
 }
@@ -213,18 +215,16 @@ export function listFilePath(location: string): string {
 	return location.startsWith('/') ? location : `/${location}`
 }
 
-/** SIM states that mean there is no stick or SIM card at all. */
-const NO_MOBILE_STATUSES = new Set(['', 'factory default', 'unconfigured', 'no sim card'])
-
 /**
- * Whether a mobile stick or SIM is actually there. Every current box announces the mobile service,
- * because a stick can be plugged in; without one it reports e.g. "factory default" and no technology.
+ * Whether a mobile stick is actually there and on a network. Every current box announces the
+ * mobile service, because a stick can be plugged in. The SIM state alone does not tell: a box
+ * keeps the configuration of a stick used once (a FRITZ!Box 7490 with FRITZ!OS 7.62 reports
+ * "PIN successful" with no stick, no technology and no cells). Only a technology in use, cells in
+ * reach or a signal show a stick that is plugged in.
  */
 export function hasMobileHardware(mobile: MobileInfo): boolean {
-	const technology = mobile.technology.toLowerCase()
-	return (
-		!NO_MOBILE_STATUSES.has(mobile.simStatus.trim().toLowerCase()) || (technology !== '' && technology !== 'unknown')
-	)
+	const technology = mobile.technology.trim().toLowerCase()
+	return (technology !== '' && technology !== 'unknown') || mobile.cells > 0 || mobile.signalRsrp !== undefined
 }
 
 /** Whether the mobile connection is up: switched on and attached to a network. */
@@ -353,7 +353,6 @@ export class RouterReader {
 		return problems
 	}
 
-	/** The part that rarely changes: identity, addresses, DSL line, WLAN and the host list. */
 	/**
 	 * Drops the internet connection so the box dials in again at once, usually with a new IP
 	 * address. The box may cut the answer off while the line goes down, so a request that gets no
@@ -422,6 +421,7 @@ export class RouterReader {
 		}
 	}
 
+	/** The part that rarely changes: identity, addresses, DSL line, WLAN and the host list. */
 	async readSlow(state: RouterState, withDeviceInfo: boolean): Promise<ReadProblem[]> {
 		const problems: ReadProblem[] = []
 
@@ -526,6 +526,7 @@ export class RouterReader {
 					roaming: tr064Bool(ex.NewRoaming),
 					signalRsrp: tr064Number(ex.NewSignalRSRP0),
 					provider: connectedProvider(ex.NewCellList ?? ''),
+					cells: (ex.NewCellList ?? '').match(/<Cell>/g)?.length ?? 0,
 					uptime: tr064Number(ex.NewUptime),
 				}
 				state.mobile = hasMobileHardware(mobile) ? mobile : undefined
@@ -619,6 +620,14 @@ export class RouterReader {
 				})
 				const down = firstOfList(monitor.Newds_current_bps)
 				const up = firstOfList(monitor.Newus_current_bps)
+				// Over an Ethernet WAN port the Layer 1 rates are the port speed, in kbit/s; the
+				// monitor carries the line capacity set in the box, in bytes per second.
+				if (state.accessType === 'Ethernet') {
+					const maxDown = tr064Number(monitor.Newmax_ds)
+					const maxUp = tr064Number(monitor.Newmax_us)
+					if (maxDown) state.lineDownstream = maxDown * 8
+					if (maxUp) state.lineUpstream = maxUp * 8
+				}
 				if (down !== undefined || up !== undefined) {
 					state.rateDown = down
 					state.rateUp = up

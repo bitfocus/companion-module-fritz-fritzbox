@@ -224,6 +224,12 @@ export async function startFakeBox(options = {}) {
 		smartHomeForbidden: options.smartHomeForbidden ?? false,
 		/** The REST API answering the overview with an empty body. */
 		emptyOverview: options.emptyOverview ?? false,
+		/** Without the REST API: answer like FRITZ!OS 7.x (400, code 201) instead of 404. */
+		legacyRestAnswer: options.legacyRestAnswer ?? false,
+		/** Delay of every TR-064 answer in ms. */
+		delayMs: options.delayMs ?? 0,
+		/** WAN over an Ethernet port to a fibre converter, like a FRITZ!Box 7490 with LAN 1 as WAN. */
+		ethernetWan: options.ethernetWan ?? false,
 		/** The old AHA-HTTP interface, which every box has, also those without the REST API. */
 		aha: options.aha ?? true,
 		ahaState: initialAhaState(),
@@ -311,15 +317,27 @@ export async function startFakeBox(options = {}) {
 		if (path === '/upnp/control/wanipconnection1' && action === 'GetExternalIPAddress')
 			return { NewExternalIPAddress: state.wan === 'ip' && state.lineUp ? '198.51.100.99' : '' }
 		if (path === '/upnp/control/wancommonifconfig1' && action === 'GetCommonLinkProperties')
-			return {
-				NewWANAccessType: 'DSL',
-				NewLayer1UpstreamMaxBitRate: 46720000,
-				NewLayer1DownstreamMaxBitRate: 116790000,
-				NewPhysicalLinkStatus: 'Up',
-			}
+			// Over an Ethernet port the box gives the port speed here, in kbit/s (seen on a 7490).
+			return state.ethernetWan
+				? {
+						NewWANAccessType: 'Ethernet',
+						NewLayer1UpstreamMaxBitRate: 1000000,
+						NewLayer1DownstreamMaxBitRate: 1000000,
+						NewPhysicalLinkStatus: 'Up',
+					}
+				: {
+						NewWANAccessType: 'DSL',
+						NewLayer1UpstreamMaxBitRate: 46720000,
+						NewLayer1DownstreamMaxBitRate: 116790000,
+						NewPhysicalLinkStatus: 'Up',
+					}
 		if (path === '/upnp/control/wancommonifconfig1' && action === 'X_AVM-DE_GetOnlineMonitor')
 			return {
 				NewTotalNumberSyncGroups: 1,
+				// The line capacity in bytes per second: 170 / 85 Mbit/s over Ethernet. On DSL it is
+				// not used for the line rate, so it differs from the Layer 1 rate on purpose.
+				Newmax_ds: state.ethernetWan ? 21243750 : 1000000,
+				Newmax_us: state.ethernetWan ? 10621875 : 1000000,
 				Newds_current_bps: '1250000,1000,1000',
 				Newus_current_bps: '62500,200,200',
 				Newmc_current_bps: '0,0,0',
@@ -475,6 +493,8 @@ export async function startFakeBox(options = {}) {
 		if (url.pathname === '/devicehostlist.lua') return send(200, hostList(state.hosts))
 
 		if (url.pathname.startsWith('/upnp/control/')) {
+			// A box reached over a slow internet connection.
+			if (state.delayMs) await new Promise((r) => setTimeout(r, state.delayMs))
 			const action = /#(\w[\w-]*)"/.exec(req.headers.soapaction ?? '')?.[1] ?? ''
 			state.soapCalls.push(action)
 			if (action !== 'GetSecurityPort' && !digestOk(req)) return challenge()
@@ -517,7 +537,14 @@ export async function startFakeBox(options = {}) {
 		}
 
 		if (url.pathname.startsWith('/api/v0/smarthome/')) {
-			if (!state.smartHome) return send(404, 'Not Found', 'text/html')
+			if (!state.smartHome) {
+				// FRITZ!OS 7.x answers the unknown path like this (seen on a FRITZ!Box 7490, 7.62).
+				if (state.legacyRestAnswer) {
+					const error = { code: 201, message: `unknown endpoint: ${url.pathname}` }
+					return send(400, JSON.stringify({ errors: [error] }), 'application/json')
+				}
+				return send(404, 'Not Found', 'text/html')
+			}
 			const sid = /^AVM-SID ([0-9a-f]{16})$/.exec(req.headers.authorization ?? '')?.[1]
 			if (!sid || !state.sids.has(sid)) {
 				return send(401, JSON.stringify({ errors: [{ code: 3001, message: 'no permission' }] }), 'application/json')

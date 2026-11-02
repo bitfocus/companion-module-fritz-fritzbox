@@ -2,7 +2,7 @@
 
 Shows the status of a FRITZ!Box router on buttons and controls the smart home devices connected to it: sockets, lamps, thermostats, blinds, contacts and buttons.
 
-> **Beta:** this module has been tested with a real FRITZ!Box. Since boxes differ a lot (DSL, cable, fibre, LTE/5G, smart home devices), we are looking for beta testers. Please report what works and what does not at https://github.com/bitfocus/companion-module-fritz-fritzbox/issues, with the model, FRITZ!OS version and connection type, and attach a diagnostics report (see below).
+> Tested with real boxes: a FRITZ!Box 6660 Cable (FRITZ!OS 8.40) and a FRITZ!Box 7490 (FRITZ!OS 7.62) with fibre over its LAN 1 port, in the home network and over MyFRITZ!. Boxes differ a lot (DSL, cable, fibre, LTE/5G, smart home devices), so if something does not work on yours, please report it at https://github.com/bitfocus/companion-module-fritz-fritzbox/issues, with the model, FRITZ!OS version and connection type, and attach a diagnostics report (see below).
 
 ### Preparing the FRITZ!Box
 

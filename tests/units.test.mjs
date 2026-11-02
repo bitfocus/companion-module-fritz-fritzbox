@@ -398,10 +398,17 @@ const noStick = {
 	roaming: false,
 	signalRsrp: undefined,
 	provider: '',
+	cells: 0,
 	uptime: 292838,
 }
 eq('a box without a mobile stick has no mobile connection', hasMobileHardware(noStick), false)
-eq('a SIM that is ready counts', hasMobileHardware({ ...noStick, simStatus: 'PIN successful' }), true)
+eq(
+	'a stored SIM state without technology or cells is no stick (FRITZ!Box 7490, 7.62)',
+	hasMobileHardware({ ...noStick, simStatus: 'PIN successful', roaming: true }),
+	false,
+)
+eq('cells in reach count', hasMobileHardware({ ...noStick, simStatus: 'PIN successful', cells: 2 }), true)
+eq('a signal counts', hasMobileHardware({ ...noStick, signalRsrp: -97 }), true)
 eq('a technology in use counts', hasMobileHardware({ ...noStick, technology: 'LTE' }), true)
 eq(
 	'connected needs a technology, not just uptime',

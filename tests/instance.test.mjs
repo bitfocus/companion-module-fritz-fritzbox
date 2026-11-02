@@ -122,6 +122,8 @@ console.log('Router status and smart home against a working box')
 	const { instance, record } = await startInstance(box.port)
 
 	await waitFor(() => record.variables.device_connected === 'true', 'router connection')
+	// Connected is published after the quick part of a read; the slow part follows.
+	await waitFor(() => record.variables.lan_hosts_known === 2, 'slow part of the first read')
 	await waitFor(() => record.variables.smarthome_units === 3, 'smart home overview')
 
 	check('status ends up ok', lastStatus(record)?.status === 'ok', JSON.stringify(record.statuses))
@@ -632,6 +634,8 @@ console.log('Box reached over MyFRITZ!-style remote access')
 		tr064PlainPort: 1,
 	})
 	await waitFor(() => record.variables.device_connected === 'true', 'router connection over the remote access port')
+	// Connected comes from the quick part of a read; model and host list follow from the slow part.
+	await waitFor(() => record.variables.lan_hosts_known === 2, 'host list over the remote access port')
 	await waitFor(() => record.variables.smarthome_units === 3, 'smart home over the remote access port')
 	check(
 		'router status read over HTTPS',
@@ -794,6 +798,71 @@ console.log('Older box: no Smart Home REST API, AHA-HTTP instead')
 		'device names are masked in the AHA lists',
 		!response.body.includes('Heizung Saal') && !response.body.includes('Beamer'),
 	)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('FRITZ!OS 7.x answering the REST path with 400 / 201 unknown endpoint')
+{
+	const box = await startFakeBox({ smartHome: false, legacyRestAnswer: true })
+	const { instance, record } = await startInstance(box.port)
+	await waitFor(() => record.variables.smarthome_units >= 6, 'smart home over AHA')
+	check(
+		'the module switches to AHA',
+		record.logs.some((l) => /using the AHA-HTTP interface/.test(l.message)),
+	)
+	check('no smart home error is reported', !record.logs.some((l) => /Smart home not readable/.test(l.message)))
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('WAN over an Ethernet port (fibre converter)')
+{
+	const box = await startFakeBox({ ethernetWan: true })
+	const { instance, record } = await startInstance(box.port, { smartHomeInterval: 0 })
+	await waitFor(() => record.variables.connection_wan1_line_down_mbit !== undefined, 'line rate')
+	check(
+		'the line rate is the capacity set in the box, not the port speed',
+		record.variables.connection_wan1_line_down_mbit === 170 && record.variables.connection_wan1_line_up_mbit === 85,
+		`${record.variables.connection_wan1_line_down_mbit} / ${record.variables.connection_wan1_line_up_mbit}`,
+	)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Diagnostics report of a slow box')
+{
+	// Every TR-064 answer takes 250 ms, so the report takes longer than Companion waits (5 s).
+	const box = await startFakeBox({ delayMs: 250 })
+	const { instance, record } = await startInstance(box.port)
+	await waitFor(() => record.variables.lan_hosts_known === 2, 'first read', 20000)
+	const request = {
+		baseUrl: '',
+		headers: {},
+		hostname: '',
+		ip: '',
+		method: 'GET',
+		originalUrl: '',
+		path: '/diagnostics',
+		query: {},
+	}
+	const started = Date.now()
+	const first = await instance.handleHttpRequest(request)
+	check("the first answer comes within Companion's 5 s", Date.now() - started < 4500, `${Date.now() - started} ms`)
+	check(
+		'it is a page that reloads itself',
+		/http-equiv="refresh"/.test(first.body) && first.headers['Content-Type'].startsWith('text/html'),
+	)
+	let report
+	const deadline = Date.now() + 30000
+	while (Date.now() < deadline) {
+		const answer = await instance.handleHttpRequest(request)
+		if (answer.headers['Content-Type'].startsWith('application/json')) {
+			report = JSON.parse(answer.body)
+			break
+		}
+	}
+	check('then the report is downloaded', report?.tr064?.results?.length > 10)
 	await instance.destroy()
 	await box.close()
 }

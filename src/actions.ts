@@ -472,7 +472,7 @@ export function UpdateActions(self: ModuleInstance): void {
 		diagnostics_report: {
 			name: 'Diagnostics report: show the download address',
 			description:
-				'For beta testers: writes into the log, and into the variable device_diagnostics_url, where the ' +
+				'For problem reports: writes into the log, and into the variable device_diagnostics_url, where the ' +
 				'diagnostics report of this connection can be downloaded with a browser. Passwords are never ' +
 				'included; addresses, names and serial numbers are replaced by placeholders.',
 			// The address of the Companion web server is only known to Companion. These hidden fields hand
@@ -512,6 +512,8 @@ export function UpdateActions(self: ModuleInstance): void {
 				)
 				self.setVariableValues({ device_diagnostics_url: url })
 				self.log('info', `Diagnostics report: open ${url} in a browser`)
+				// Built right away, so it is usually ready by the time the address is opened.
+				void self.prepareDiagnostics()
 				return Promise.resolve()
 			},
 		},

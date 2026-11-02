@@ -4,11 +4,11 @@ A [Bitfocus Companion](https://bitfocus.io/companion) module for the FRITZ!Box: 
 
 See [companion/HELP.md](companion/HELP.md) for what it offers and how to set up the box.
 
-The module has been tested with a real FRITZ!Box, in the home network and over MyFRITZ!.
+The module has been tested with real boxes, in the home network and over MyFRITZ!: a FRITZ!Box 6660 Cable with FRITZ!OS 8.40 (smart home over the REST API) and a FRITZ!Box 7490 with FRITZ!OS 7.62 (fibre over its LAN 1 port, smart home over AHA-HTTP).
 
-## Beta testers wanted
+## Reporting problems
 
-FRITZ!Boxes differ a lot: DSL, cable, fibre, LTE/5G, a mobile stick as backup, mesh setups, smart home devices of every kind. We are looking for beta testers who try the module on their own box and tell us what works and what does not.
+FRITZ!Boxes differ a lot: DSL, cable, fibre, LTE/5G, a mobile stick as backup, mesh setups, smart home devices of every kind. If something does not work on your box, please open an issue and tell us what works and what does not.
 
 Helpful in a report:
 

@@ -164,7 +164,9 @@ export class SmartHomeError extends Error {
 
 	/** The box has no REST API: FRITZ!OS before 8.20, or not a FRITZ!Box at all. */
 	get isNotAvailable(): boolean {
-		return this.status === 404 && this.codes.length === 0
+		// FRITZ!OS 7.x answers the unknown /api/v0 path with HTTP 400 and error code 201
+		// "unknown endpoint" (seen on a FRITZ!Box 7490 with FRITZ!OS 7.62), newer ones with 404.
+		return (this.status === 404 && this.codes.length === 0) || (this.status === 400 && this.codes.includes(201))
 	}
 
 	/** The user lacks the Smart Home right (code 3001), or the session is not accepted. */

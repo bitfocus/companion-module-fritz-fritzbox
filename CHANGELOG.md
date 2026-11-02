@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+First stable version. Router status over TR-064, smart home over the REST API (FRITZ!OS 8.20 and later) or the AHA-HTTP interface (older boxes), event actions and the diagnostics report, as in the betas. Tested with a FRITZ!Box 6660 Cable (FRITZ!OS 8.40) and a FRITZ!Box 7490 (FRITZ!OS 7.62), in the home network and over MyFRITZ!.
+
+Fixes from the FRITZ!Box 7490 with FRITZ!OS 7.62:
+
+- Smart home switches to the AHA-HTTP interface also when the box answers the REST path with "400, 201 unknown endpoint", as FRITZ!OS 7.x does, not only with 404.
+- The diagnostics report is built in the background. Companion gives a module 5 s to answer, and over the internet a report can take longer; until it is ready the browser shows a page that reloads itself.
+- Connection state and throughput show up right after the quick part of a read, without waiting for addresses, WLAN and a host list of maybe hundreds of devices.
+- A mobile stick only counts as there when the box reports a technology, cells or a signal. Boxes keep the SIM state of a stick used once, which made WAN 2 and the mobile variables appear without a stick.
+- With WAN over an Ethernet port (e.g. to a fibre converter) the line rate is the line capacity set in the box, not the speed of the port.
+- The WAN 2 uptime is only shown while the mobile connection is up; boxes report the uptime of the main connection there otherwise.
+
 ## 1.0.0-beta.3
 
 Fixes from the Bitfocus review of 1.0.0-beta.2:

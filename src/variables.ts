@@ -336,8 +336,9 @@ export function routerVariableValues(router: RouterState, now = Date.now()): Com
 			connection_wan2_enabled: String(mobile.enabled),
 			// The mobile service has no connection state of its own; a network technology in use is the sign.
 			connection_wan2_connected: String(mobileConnected(mobile)),
-			connection_wan2_uptime: formatted(mobile.uptime),
-			connection_wan2_uptime_seconds: blank(mobile.uptime),
+			// Boxes report the uptime of the main connection here when no stick is connected.
+			connection_wan2_uptime: mobileConnected(mobile) ? formatted(mobile.uptime) : '',
+			connection_wan2_uptime_seconds: mobileConnected(mobile) ? blank(mobile.uptime) : '',
 		})
 	}
 

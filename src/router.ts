@@ -270,6 +270,15 @@ export function wlanSsidProblem(ssid: string): string | undefined {
 	return undefined
 }
 
+/**
+ * The service id from the answer of Layer3Forwarding: "1.WANPPPConnection.1" becomes
+ * "WANPPPConnection1". Undefined for anything else.
+ */
+export function connectionServiceId(defaultService: string): string | undefined {
+	const match = /(WAN(?:PPP|IP)Connection)\.(\d+)$/.exec(defaultService.trim())
+	return match ? `${match[1]}${match[2]}` : undefined
+}
+
 /** Normalises a MAC address to upper case with colons, so any common spelling matches. */
 export function normaliseMac(mac: string): string {
 	const hex = mac.replace(/[^0-9a-fA-F]/g, '').toUpperCase()
@@ -278,9 +287,10 @@ export function normaliseMac(mac: string): string {
 }
 
 /** Finds a host by MAC address, IP address or name, the way a user would type it. */
-export function findHost(hosts: HostInfo[] | undefined, query: string): HostInfo | undefined {
+export function findHost(hosts: HostInfo[] | undefined, query: unknown): HostInfo | undefined {
 	if (!hosts) return undefined
-	const wanted = query.trim()
+	// An expression can hand over a number instead of text.
+	const wanted = (typeof query === 'string' || typeof query === 'number' ? String(query) : '').trim()
 	if (!wanted) return undefined
 	const mac = normaliseMac(wanted)
 	return (
@@ -642,31 +652,39 @@ export class RouterReader {
 		if (this.#connectionServiceChecked) return state.connectionService
 		await this.#tr064.services()
 
+		let definite = false
 		try {
 			const result = await this.#tr064.call('Layer3Forwarding1', 'GetDefaultConnectionService')
-			// Looks like "1.WANPPPConnection.1"; the service id drops the dots.
-			const match = /(WAN(?:PPP|IP)Connection).(d+)/.exec(result.NewDefaultConnectionService ?? '')
-			if (match && (await this.#tr064.has(`${match[1]}${match[2]}`))) {
-				state.connectionService = `${match[1]}${match[2]}`
+			const service = connectionServiceId(result.NewDefaultConnectionService ?? '')
+			if (service && (await this.#tr064.has(service))) {
+				state.connectionService = service
+				definite = true
 			}
 		} catch (error) {
 			if (!(error instanceof Tr064Fault)) throw error
 		}
 
-		if (!state.connectionService) {
+		if (!definite) {
+			// Without an answer from Layer3Forwarding, the service that reports "Connected" wins.
+			// Before the line is up neither does, so this guess is only used until a later poll
+			// can tell, e.g. when a DSL box answers TR-064 before it has synchronised.
 			for (const candidate of ['WANPPPConnection1', 'WANIPConnection1']) {
 				if (!(await this.#tr064.has(candidate))) continue
 				try {
 					const status = await this.#tr064.call(candidate, 'GetStatusInfo')
-					state.connectionService = candidate
-					if (status.NewConnectionStatus === 'Connected') break
+					state.connectionService ??= candidate
+					if (status.NewConnectionStatus === 'Connected') {
+						state.connectionService = candidate
+						definite = true
+						break
+					}
 				} catch (error) {
 					if (!(error instanceof Tr064Fault)) throw error
 				}
 			}
 		}
 
-		this.#connectionServiceChecked = true
+		this.#connectionServiceChecked = definite
 		return state.connectionService
 	}
 

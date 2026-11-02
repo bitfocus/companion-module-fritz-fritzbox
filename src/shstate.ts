@@ -99,8 +99,9 @@ export function assignNamePrefixes(units: ShUnit[]): Map<string, string> {
 	return prefixes
 }
 
-export function findUnit(state: SmartHomeState, uid: string): ShUnit | undefined {
-	const wanted = uid.trim()
+export function findUnit(state: SmartHomeState, uid: unknown): ShUnit | undefined {
+	// An expression can hand over a number instead of text.
+	const wanted = (typeof uid === 'string' || typeof uid === 'number' ? String(uid) : '').trim()
 	return (
 		state.overview.units.find((unit) => unit.UID === wanted) ??
 		// A name typed in, or coming from an expression, is accepted as well.

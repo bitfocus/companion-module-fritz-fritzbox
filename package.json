@@ -1,6 +1,6 @@
 {
 	"name": "fritz-fritzbox",
-	"version": "1.0.0-beta.2",
+	"version": "1.0.0-beta.3",
 	"main": "dist/main.js",
 	"type": "module",
 	"scripts": {
@@ -12,7 +12,7 @@
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"lint:raw": "eslint",
 		"lint": "run lint:raw .",
-		"test": "node tests/run.mjs",
+		"test": "run build && node tests/run.mjs",
 		"live-check": "node scripts/live-check.mjs"
 	},
 	"license": "MIT",

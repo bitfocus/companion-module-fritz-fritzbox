@@ -214,6 +214,16 @@ export async function startFakeBox(options = {}) {
 		nonces: new Set(),
 		soapCalls: [],
 		smartHome: options.smartHome ?? true,
+		/** Which service carries the internet: 'ppp' (DSL) or 'ip' (cable, some fibre). */
+		wan: options.wan ?? 'ppp',
+		/** Whether Layer3Forwarding names the default connection service. */
+		layer3: options.layer3 ?? true,
+		/** Whether the line is up yet, e.g. false while DSL is still synchronising. */
+		lineUp: options.lineUp ?? true,
+		/** A user without the Smart Home right: the REST API refuses with code 3001 even with a valid SID. */
+		smartHomeForbidden: options.smartHomeForbidden ?? false,
+		/** The REST API answering the overview with an empty body. */
+		emptyOverview: options.emptyOverview ?? false,
 		/** The old AHA-HTTP interface, which every box has, also those without the REST API. */
 		aha: options.aha ?? true,
 		ahaState: initialAhaState(),
@@ -285,8 +295,21 @@ export async function startFakeBox(options = {}) {
 				NewUpTime: 3725,
 				NewDeviceLog: 'lots of log lines',
 			}
-		if (path === '/upnp/control/layer3forwarding' && action === 'GetDefaultConnectionService')
-			return { NewDefaultConnectionService: '1.WANPPPConnection.1' }
+		if (path === '/upnp/control/layer3forwarding' && action === 'GetDefaultConnectionService') {
+			// Some boxes do not answer this; the module then has to find the service itself.
+			if (!state.layer3) return undefined
+			return { NewDefaultConnectionService: state.wan === 'ip' ? '1.WANIPConnection.1' : '1.WANPPPConnection.1' }
+		}
+		// The IP connection: the internet service of cable and some fibre boxes. It answers
+		// "Connected" only when it is the active one and the line is up.
+		if (path === '/upnp/control/wanipconnection1' && action === 'GetStatusInfo')
+			return {
+				NewConnectionStatus: state.wan === 'ip' && state.lineUp ? 'Connected' : 'Disconnected',
+				NewLastConnectionError: 'ERROR_NONE',
+				NewUptime: state.wan === 'ip' && state.lineUp ? 4242 : 0,
+			}
+		if (path === '/upnp/control/wanipconnection1' && action === 'GetExternalIPAddress')
+			return { NewExternalIPAddress: state.wan === 'ip' && state.lineUp ? '198.51.100.99' : '' }
 		if (path === '/upnp/control/wancommonifconfig1' && action === 'GetCommonLinkProperties')
 			return {
 				NewWANAccessType: 'DSL',
@@ -302,7 +325,9 @@ export async function startFakeBox(options = {}) {
 				Newmc_current_bps: '0,0,0',
 			}
 		if (path === '/upnp/control/wanpppconn1' && action === 'GetStatusInfo')
-			return { NewConnectionStatus: 'Connected', NewLastConnectionError: 'ERROR_NONE', NewUptime: 90061 }
+			return state.wan === 'ppp' && state.lineUp
+				? { NewConnectionStatus: 'Connected', NewLastConnectionError: 'ERROR_NONE', NewUptime: 90061 }
+				: { NewConnectionStatus: 'Disconnected', NewLastConnectionError: 'ERROR_NONE', NewUptime: 0 }
 		if (path === '/upnp/control/wanpppconn1' && action === 'ForceTermination') {
 			state.reconnects = (state.reconnects ?? 0) + 1
 			state.externalIp = '198.51.100.23'
@@ -497,8 +522,12 @@ export async function startFakeBox(options = {}) {
 			if (!sid || !state.sids.has(sid)) {
 				return send(401, JSON.stringify({ errors: [{ code: 3001, message: 'no permission' }] }), 'application/json')
 			}
+			if (state.smartHomeForbidden) {
+				return send(403, JSON.stringify({ errors: [{ code: 3001, message: 'no permission' }] }), 'application/json')
+			}
 			const path = url.pathname.slice('/api/v0/smarthome'.length)
 			if (req.method === 'GET' && path === '/overview') {
+				if (state.emptyOverview) return send(200, '', 'application/json')
 				return send(200, JSON.stringify(state.overview), 'application/json')
 			}
 			const unitMatch = /^\/overview\/units\/(.+)$/.exec(path)

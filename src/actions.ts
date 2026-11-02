@@ -125,7 +125,10 @@ export function UpdateActions(self: ModuleInstance): void {
 		label: 'Device',
 		choices: devices,
 		default: String(devices[0]?.id ?? ''),
-		tooltip: 'The list follows the network devices the box knows. It refreshes when devices come or go.',
+		allowCustom: true,
+		tooltip:
+			'Pick a device, or type a MAC address, IP address or the name shown on the box. The list follows ' +
+			'the network devices the box knows and refreshes when devices come or go.',
 	}
 
 	/** Looks up the unit an action names and logs why when it cannot be used. */

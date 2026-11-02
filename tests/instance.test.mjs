@@ -304,7 +304,10 @@ console.log('Router status and smart home against a working box')
 		'device list comes from the box',
 		deviceChoices.includes('AA:BB:CC:00:00:01') && deviceChoices.includes('AA:BB:CC:00:00:02'),
 	)
-	check('device field takes no free text', record.actions.host_wake.options[0].allowCustom !== true)
+	check(
+		'device field also takes an address, a name or an expression',
+		record.actions.host_wake.options[0].allowCustom === true,
+	)
 	await runAction(record, 'host_wake', { host: 'AA:BB:CC:00:00:02' })
 	check('Wake on LAN sent for the tablet', box.state.woken.at(-1) === 'AA:BB:CC:00:00:02')
 	await runAction(record, 'host_internet', { host: 'AA:BB:CC:00:00:01', mode: 'block' })
@@ -317,6 +320,16 @@ console.log('Router status and smart home against a working box')
 	check('blocked feedback follows', feedback(record, 'host_blocked', { host: 'playout-pc' }) === true)
 	await runAction(record, 'host_internet', { host: 'AA:BB:CC:00:00:01', mode: 'toggle' })
 	check('toggle allows it again', box.state.hosts[0].disallow === 0)
+	// The device can also be given by IP address or name, e.g. from an expression.
+	await runAction(record, 'host_internet', { host: '192.168.178.20', mode: 'block' })
+	check('a device given by its IP address is blocked', box.state.hosts[0].disallow === 1)
+	await runAction(record, 'host_internet', { host: 'playout-pc', mode: 'allow' })
+	check('a device given by its name is allowed again', box.state.hosts[0].disallow === 0)
+	await runAction(record, 'host_wake', { host: 1234 })
+	check(
+		'a number from an expression is reported, not thrown',
+		record.logs.some((l) => l.level === 'warn' && /device "1234" is not known/.test(l.message)),
+	)
 
 	// Restart only with the confirmation ticked.
 	await runAction(record, 'box_reboot', { confirm: false })
@@ -449,6 +462,122 @@ console.log('Box away for a while, e.g. the nightly reconnect over MyFRITZ!')
 	check('smart home resumes with a new login', record.variables.smarthome_units === 3 && box.state.loginAttempts === 1)
 	check('status is ok again', lastStatus(record)?.status === 'ok', JSON.stringify(lastStatus(record)))
 	check('the recovery is logged', record.logs.filter((l) => /Connected to/.test(l.message)).length === 2)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Internet over the IP connection, with a PPP connection listed beside it')
+{
+	// Cable or fibre: Layer3Forwarding names the IP connection, PPP is listed but never connected.
+	const box = await startFakeBox({ wan: 'ip' })
+	const { instance, record } = await startInstance(box.port, { smartHomeInterval: 0 })
+	await waitFor(() => record.variables.connection_wan1_ipv4 === '198.51.100.99', 'IP connection read')
+	check('the IP connection named by the box is used', record.variables.connection_wan1_ipv4 === '198.51.100.99')
+	check('and reported as connected', record.variables.connection_wan1_status === 'Connected')
+	await instance.destroy()
+	await box.close()
+}
+
+for (const layer3 of [true, false]) {
+	console.log(`DSL box, line still down at the first contact, Layer3Forwarding ${layer3 ? 'answers' : 'silent'}`)
+	// PPP carries the internet, IP is listed beside it and answers "Disconnected". Before the
+	// line is up neither is connected, so a guess must not stick once the line comes up.
+	const box = await startFakeBox({ wan: 'ppp', layer3, lineUp: false })
+	const { instance, record } = await startInstance(box.port, { smartHomeInterval: 0 })
+	await waitFor(() => record.variables.device_connected === 'true', 'first connection')
+	check('not connected while the line is down', record.variables.connection_wan1_connected === 'false')
+	box.state.lineUp = true
+	await runAction(record, 'refresh', {})
+	check(
+		'once the line is up, the PPP connection is followed',
+		record.variables.connection_wan1_connected === 'true' && record.variables.connection_wan1_ipv4 === '203.0.113.7',
+		JSON.stringify([record.variables.connection_wan1_status, record.variables.connection_wan1_ipv4]),
+	)
+	await runAction(record, 'wan_reconnect', {})
+	check('reconnect goes to the PPP connection', box.state.reconnects === 1)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Cable box, line still down at the first contact, Layer3Forwarding silent')
+{
+	const box = await startFakeBox({ wan: 'ip', layer3: false, lineUp: false })
+	const { instance, record } = await startInstance(box.port, { smartHomeInterval: 0 })
+	await waitFor(() => record.variables.device_connected === 'true', 'first connection')
+	check('not connected while the line is down', record.variables.connection_wan1_connected === 'false')
+	box.state.lineUp = true
+	await runAction(record, 'refresh', {})
+	check(
+		'once the line is up, the connected service is found',
+		record.variables.connection_wan1_connected === 'true' && record.variables.connection_wan1_ipv4 === '198.51.100.99',
+		JSON.stringify([record.variables.connection_wan1_status, record.variables.connection_wan1_ipv4]),
+	)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Name variables keep updating after the settings are saved')
+{
+	const box = await startFakeBox()
+	const { instance, record } = await startInstance(box.port)
+	await waitFor(() => record.variables.smarthome_steckdose_regie_power === 123.45, 'name variable')
+	await instance.configUpdated({ ...instance.config, pollInterval: 30 }, { password: PASSWORD })
+	box.state.overview.units[0].interfaces.multimeterInterface.power = 55000
+	await waitFor(() => record.variables.smarthome_steckdose_regie_power === 55, 'name variable after saving', 4000)
+	check(
+		'the name variable follows the box after a save',
+		record.variables.smarthome_steckdose_regie_power === 55,
+		String(record.variables.smarthome_steckdose_regie_power),
+	)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Button pressed recently turns off on time')
+{
+	const box = await startFakeBox({ smartHome: false })
+	box.state.ahaState.buttonPressed = Math.floor(Date.now() / 1000)
+	const { instance, record } = await startInstance(box.port)
+	await waitFor(() => 'smarthome_taster_regie_oben_rechts_last_press' in record.variableDefinitions, 'button unit')
+	const options = { unit: '09995 1040598-1', seconds: 2 }
+	check('the feedback is on right after the press', feedback(record, 'sh_button_pressed', options) === true)
+	const checksBefore = record.checked.filter((id) => id === 'sh_button_pressed').length
+	await new Promise((r) => setTimeout(r, 3200))
+	check('it is off after the configured seconds', feedback(record, 'sh_button_pressed', options) === false)
+	check(
+		'Companion is told to re-check it without waiting for the next read',
+		record.checked.filter((id) => id === 'sh_button_pressed').length >= checksBefore + 2,
+	)
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('User without the Smart Home right')
+{
+	const box = await startFakeBox({ smartHomeForbidden: true })
+	const { instance, record } = await startInstance(box.port)
+	await waitFor(() => lastStatus(record)?.status === 'unknown_warning', 'smart home warning')
+	await waitFor(() => record.variables.device_connected === 'true', 'router connection')
+	check(
+		'the connection shows a warning, not an authentication failure',
+		lastStatus(record)?.status === 'unknown_warning',
+		JSON.stringify(lastStatus(record)),
+	)
+	check('the warning says how to switch smart home off', /Smart home interval/.test(lastStatus(record)?.message ?? ''))
+	check('router values still work', record.variables.device_model === 'FRITZ!Box 7590 AX')
+	await instance.destroy()
+	await box.close()
+}
+
+console.log('Empty smart home overview')
+{
+	const box = await startFakeBox({ emptyOverview: true })
+	const { instance, record } = await startInstance(box.port, { pollInterval: 60 })
+	await waitFor(() => record.logs.some((l) => /empty smart home overview/.test(l.message)), 'clear message')
+	check(
+		'an empty overview gives a clear message',
+		record.logs.some((l) => /empty smart home overview/.test(l.message)),
+	)
 	await instance.destroy()
 	await box.close()
 }

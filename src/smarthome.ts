@@ -220,7 +220,8 @@ export class SmartHomeClient implements SmartHomeBackend {
 	}
 
 	async overview(): Promise<ShOverview> {
-		const overview = await this.#json<Partial<ShOverview>>('GET', '/overview')
+		const overview = await this.#json<Partial<ShOverview> | undefined>('GET', '/overview')
+		if (!overview) throw new SmartHomeError('The box sent an empty smart home overview', 200)
 		return {
 			devices: overview.devices ?? [],
 			units: overview.units ?? [],

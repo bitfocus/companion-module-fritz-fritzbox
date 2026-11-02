@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+Fixes from the Bitfocus review of 1.0.0-beta.2:
+
+- DSL boxes: the internet connection (PPP) was not always recognised, so status, external IP and reconnect could follow the wrong service when the line was not up yet at the first contact.
+- Smart home variables named after a device stopped updating after the connection settings were saved.
+- The device field of "Wake on LAN" and "block or allow internet" also takes an IP address, a name or an expression, like the feedbacks.
+- "Button pressed recently" turns off when its time is up, not at the next smart home read.
+- A user without the Smart Home right shows a warning with a hint, instead of an authentication failure for the whole connection.
+- Values from expressions that are numbers no longer break the device lookups.
+- One malformed character code in a device name no longer stops the host list.
+- An empty smart home answer gives a clear message.
+- The CI workflow is the template's, with its own test job switched on.
+
 ## 1.0.0-beta.2
 
 - The module now lives in the official repository: https://github.com/bitfocus/companion-module-fritz-fritzbox

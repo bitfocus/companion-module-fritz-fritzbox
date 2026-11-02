@@ -12,6 +12,8 @@ export function initialAhaState() {
 		bulbOn: 1,
 		bulbLevel: 80,
 		triggerActive: 1,
+		/** When the button of the FRITZ!DECT 440 was last pressed, in unix seconds. */
+		buttonPressed: 1760001234,
 		commands: [],
 	}
 }
@@ -55,7 +57,7 @@ export function ahaDeviceList(s) {
  <device identifier="09995 1040598" id="20" functionbitmask="1048864" fwversion="05.25" manufacturer="AVM" productname="FRITZ!DECT 440">
   <present>1</present><txbusy>0</txbusy><name>Taster Regie</name><battery>90</battery><batterylow>0</batterylow>
   <temperature><celsius>210</celsius><offset>0</offset></temperature>
-  <button identifier="09995 1040598-1" id="5000"><name>Taster Regie: Oben rechts</name><lastpressedtimestamp>1760001234</lastpressedtimestamp></button>
+  <button identifier="09995 1040598-1" id="5000"><name>Taster Regie: Oben rechts</name><lastpressedtimestamp>${s.buttonPressed}</lastpressedtimestamp></button>
   <humidity><rel_humidity>45</rel_humidity></humidity>
  </device>
  <group identifier="65:3A:18-900" id="900" functionbitmask="37504" fwversion="1.0" manufacturer="AVM" productname="">

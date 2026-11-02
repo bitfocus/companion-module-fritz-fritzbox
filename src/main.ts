@@ -54,6 +54,8 @@ const DEVICE_INFO_MS = 600_000
 const AFTER_ACTION_MS = [1_000, 4_000]
 /** After a router action, when to read the status again. */
 const AFTER_ROUTER_ACTION_MS = [1_500, 5_000]
+/** The longest a "button pressed recently" feedback can stay active: the maximum of its option. */
+const BUTTON_WINDOW_MAX_S = 3600
 /** After a reconnect, when to read the status again: the line drops and comes back within seconds. */
 const AFTER_RECONNECT_MS = [5_000, 15_000, 30_000]
 /** After TR-064 refused the login, how long to wait before trying again, so the box does not lock up. */
@@ -122,6 +124,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#followUps: NodeJS.Timeout[] = []
 	#reconnectChecks: NodeJS.Timeout[] = []
 	#routerChecks: NodeJS.Timeout[] = []
+	/** Re-checks "button pressed recently" every second while a press is recent. */
+	#buttonTimer: NodeJS.Timeout | undefined
 	#routerInFlight = false
 	#smartHomeInFlight = false
 	/** Set when a smart home read has to follow the current one, e.g. after switching to AHA. */
@@ -417,6 +421,10 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#routerPausedUntil = 0
 		this.router = createRouterState()
 		this.smartHome = createSmartHomeState()
+		// The state is new, so the first read must rebuild the name table and the definitions even
+		// when the box shows the same devices as before.
+		this.#smartHomeFingerprint = ''
+		this.#definitionsFingerprint = ''
 
 		const { username } = this.config
 		const address = parseAddress(this.config.host)
@@ -543,6 +551,29 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#reconnectChecks = []
 		for (const timer of this.#routerChecks) clearTimeout(timer)
 		this.#routerChecks = []
+		if (this.#buttonTimer) clearInterval(this.#buttonTimer)
+		this.#buttonTimer = undefined
+	}
+
+	/**
+	 * While a button press is recent enough for a "button pressed recently" feedback, checks that
+	 * feedback every second, so it turns off when its time is up rather than at the next read.
+	 */
+	#watchButtonPresses(): void {
+		const now = Date.now() / 1000
+		const recent = this.smartHome.overview.units.some((unit) => {
+			const pressed = unit.interfaces.buttonInterface?.lastEventTime
+			return pressed !== undefined && pressed !== null && pressed > 0 && now - pressed < BUTTON_WINDOW_MAX_S
+		})
+		if (recent && !this.#buttonTimer) {
+			this.#buttonTimer = setInterval(() => {
+				this.checkFeedbacks('sh_button_pressed')
+				this.#watchButtonPresses()
+			}, 1000)
+		} else if (!recent && this.#buttonTimer) {
+			clearInterval(this.#buttonTimer)
+			this.#buttonTimer = undefined
+		}
 	}
 
 	async #pollRouter(): Promise<void> {
@@ -643,6 +674,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				this.#rebuildDefinitions()
 			}
 			this.setVariableValues(smartHomeVariableValues(this.smartHome))
+			this.#watchButtonPresses()
 			this.checkFeedbacks(
 				'smarthome_available',
 				'sh_on',
@@ -696,9 +728,12 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			return
 		}
 		if (error instanceof SmartHomeError && error.isPermission) {
-			const message = 'The FRITZ!Box user lacks the "Smart Home" right'
-			this.#logProblem('smarthome', 'permission', 'error', `${message}: ${error.message}`)
-			this.#setStatus('smarthome', InstanceStatus.AuthenticationFailure, message)
+			// The login itself worked, and the router part may be fine, so this is a warning: the
+			// connection is not broken, the user just has no smart home access.
+			const message =
+				'The FRITZ!Box user lacks the "Smart Home" right; set "Smart home interval" to 0 if smart home is not needed'
+			this.#logProblem('smarthome', 'permission', 'warn', `${message} (${error.message})`)
+			this.#setStatus('smarthome', InstanceStatus.UnknownWarning, message)
 			return
 		}
 		const message = describe(error)

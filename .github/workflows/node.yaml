@@ -16,8 +16,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
       - name: Use Node.js 22.x
         # This should match the version of Node.js you have defined in the manifest.json runtime field
         uses: actions/setup-node@v6
@@ -51,6 +49,7 @@ jobs:
         env:
           CI: true
 
+  # Uncomment this to enable running unit tests
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -58,8 +57,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
       - name: Use Node.js 22.x
         uses: actions/setup-node@v6
         with:
@@ -68,11 +65,6 @@ jobs:
         run: |
           corepack enable
           yarn install
-        env:
-          CI: true
-      - name: Build
-        run: |
-          yarn build
         env:
           CI: true
       - name: Run tests

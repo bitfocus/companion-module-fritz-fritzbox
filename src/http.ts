@@ -134,9 +134,14 @@ export function decodeXmlEntities(text: string): string {
 		.replace(/&gt;/g, '>')
 		.replace(/&quot;/g, '"')
 		.replace(/&apos;/g, "'")
-		.replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-		.replace(/&#x([0-9a-fA-F]+);/g, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
+		.replace(/&#(\d+);/g, (raw, code: string) => fromCodePoint(Number(code), raw))
+		.replace(/&#x([0-9a-fA-F]+);/g, (raw, code: string) => fromCodePoint(parseInt(code, 16), raw))
 		.replace(/&amp;/g, '&')
+}
+
+/** A character for a numeric reference; one out of range stays as written instead of failing the whole text. */
+function fromCodePoint(code: number, raw: string): string {
+	return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : raw
 }
 
 export function encodeXmlEntities(text: string): string {

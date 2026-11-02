@@ -17,7 +17,8 @@ const { tr064Routes } = await import(`${D}/main.js`)
 const { listFilePath, connectedProvider, randomWlanPassword, wlanPasswordProblem, wlanSsidProblem } = await import(
 	`${D}/router.js`
 )
-const { hasMobileHardware, mobileConnected } = await import(`${D}/router.js`)
+const { hasMobileHardware, mobileConnected, connectionServiceId } = await import(`${D}/router.js`)
+const { decodeXmlEntities } = await import(`${D}/http.js`)
 const { diagnosticsUrl } = await import(`${D}/actions.js`)
 const { parseXml, child, childText } = await import(`${D}/xml.js`)
 const { mapAha, ahaSetPoint, ahaSetPointParam } = await import(`${D}/aha.js`)
@@ -520,6 +521,19 @@ eq(
 	],
 )
 eq('routines', aha.overview.triggers, [{ UID: 'trg695F2D-3CBF1DC25', name: 'Abends aus', enabled: true }])
+
+// --- Findings of the Bitfocus review of 1.0.0-beta.2 ---
+eq('default connection service, PPP', connectionServiceId('1.WANPPPConnection.1'), 'WANPPPConnection1')
+eq('default connection service, IP', connectionServiceId('1.WANIPConnection.1'), 'WANIPConnection1')
+eq('default connection service, unknown', connectionServiceId('something else'), undefined)
+eq('a number from an expression finds no host, without throwing', findHost(hosts, 1234), undefined)
+eq('an empty value finds no host', findHost(hosts, undefined), undefined)
+eq('a number from an expression finds no unit, without throwing', findUnit(sh, 1234), undefined)
+eq(
+	'an out-of-range character code stays as written',
+	decodeXmlEntities('a&#99999999;b&#x110000;c&#228;'),
+	'a&#99999999;b&#x110000;cä',
+)
 
 console.log(failures === 0 ? '\nAll checks passed' : `\n${failures} check(s) failed`)
 process.exit(failures === 0 ? 0 : 1)

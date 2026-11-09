@@ -1,5 +1,5 @@
 import { httpCall, type HttpResponse } from './http.js'
-import type { FritzSession, WebEndpoint } from './session.js'
+import { SMART_HOME_RIGHT, type FritzSession, type WebEndpoint } from './session.js'
 import {
 	SmartHomeError,
 	type SetPointTemperature,
@@ -521,8 +521,9 @@ export class AhaClient implements SmartHomeBackend {
 	async #command(switchcmd: string, params: Record<string, string | number> = {}): Promise<string> {
 		let sid = await this.#session.sid()
 		let res = await this.#send(switchcmd, params, sid)
-		if (res.status === 403) {
-			// AHA answers an expired session with 403.
+		if (res.status === 403 && !this.#session.lacksRight(SMART_HOME_RIGHT)) {
+			// AHA answers an expired session with 403, and a missing right too, which a new login
+			// would not change.
 			this.#session.invalidate(sid)
 			sid = await this.#session.sid()
 			res = await this.#send(switchcmd, params, sid)

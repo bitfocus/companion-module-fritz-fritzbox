@@ -1,5 +1,5 @@
 import { httpCall, type HttpResponse } from './http.js'
-import type { FritzSession, WebEndpoint } from './session.js'
+import { SMART_HOME_RIGHT, type FritzSession, type WebEndpoint } from './session.js'
 
 /**
  * The subset of the FRITZ!OS Smart Home REST API (api/v0, FRITZ!OS 8.50) this module relies on.
@@ -254,7 +254,9 @@ export class SmartHomeClient implements SmartHomeBackend {
 		let sid = await this.#session.sid()
 		let res = await this.#send(method, path, sid, body)
 
-		if (res.status === 401 || res.status === 403) {
+		// A refusal is an expired session, unless the user lacks the right: then a new login would be
+		// refused as well and only leave one more session open on the box.
+		if ((res.status === 401 || res.status === 403) && !this.#session.lacksRight(SMART_HOME_RIGHT)) {
 			this.#session.invalidate(sid)
 			sid = await this.#session.sid()
 			res = await this.#send(method, path, sid, body)

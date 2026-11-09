@@ -17,6 +17,11 @@ export interface HttpRequestOptions {
 	headers?: Record<string, string>
 	body?: string
 	timeout: number
+	/**
+	 * Check the HTTPS certificate. Off in the home network, where the box serves one it signed
+	 * itself; on over the internet, where MyFRITZ! names get a valid one.
+	 */
+	verifyCertificate?: boolean
 }
 
 /** What an observer learns about a request: never headers or bodies, so never credentials. */
@@ -45,12 +50,28 @@ export class HttpTransportError extends Error {
 	}
 }
 
+/** The box answered over HTTPS with a certificate that does not check out. */
+export class CertificateError extends HttpTransportError {
+	constructor(host: string, reason: string) {
+		super(
+			`The HTTPS certificate of ${host} is not trusted (${reason}). MyFRITZ! names get a valid ` +
+				'certificate; for another name or an IP address, tick "Accept the certificate the box signed ' +
+				'itself" in the connection settings if the network can be trusted',
+		)
+		this.name = 'CertificateError'
+	}
+}
+
+/** Error codes of node:tls for a certificate that failed the check. */
+const CERTIFICATE_CODES =
+	/^(?:DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_(?:VERIFY_LEAF_SIGNATURE|GET_ISSUER_CERT(?:_LOCALLY)?)|CERT_(?:HAS_EXPIRED|NOT_YET_VALID|UNTRUSTED|REJECTED)|ERR_TLS_CERT_ALTNAME_INVALID)$/
+
 /**
  * One HTTP round trip.
  *
- * Built on node:http/node:https rather than fetch, because the FRITZ!Box serves HTTPS with a
- * certificate it signed itself, and fetch offers no per-request way to accept that without a
- * dependency. Every status code resolves; deciding what counts as an error is up to the caller,
+ * Built on node:http/node:https rather than fetch, because in the home network the FRITZ!Box
+ * serves HTTPS with a certificate it signed itself, and fetch offers no per-request way to accept
+ * that without a dependency. Every status code resolves; deciding what counts as an error is up to the caller,
  * since a 401 is a normal step of the digest handshake.
  */
 export async function httpCall(options: HttpRequestOptions): Promise<HttpResponse> {
@@ -89,7 +110,7 @@ async function send(options: HttpRequestOptions): Promise<HttpResponse> {
 				path: options.path,
 				method: options.method,
 				headers,
-				...(options.https ? { rejectUnauthorized: false } : {}),
+				...(options.https ? { rejectUnauthorized: options.verifyCertificate === true } : {}),
 			},
 			(res) => {
 				const chunks: Buffer[] = []
@@ -108,8 +129,10 @@ async function send(options: HttpRequestOptions): Promise<HttpResponse> {
 		req.setTimeout(options.timeout, () => {
 			req.destroy(new HttpTransportError(`${options.method} ${options.path} timed out after ${options.timeout} ms`))
 		})
-		req.on('error', (err) => {
-			reject(err instanceof HttpTransportError ? err : new HttpTransportError(err.message))
+		req.on('error', (err: NodeJS.ErrnoException) => {
+			if (err instanceof HttpTransportError) reject(err)
+			else if (CERTIFICATE_CODES.test(err.code ?? '')) reject(new CertificateError(options.host, err.code ?? ''))
+			else reject(new HttpTransportError(err.message))
 		})
 
 		if (options.body !== undefined) req.write(options.body)

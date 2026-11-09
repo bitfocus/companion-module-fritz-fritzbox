@@ -14,12 +14,13 @@ Smart home works on current and older boxes alike. From FRITZ!OS 8.20 the module
 
 ### Configuration
 
-| Field                  | Meaning                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Address                | Where the box is, e.g. `192.168.178.1` or `https://xxxxxxxxxxxxxxxx.myfritz.net:43167`                                                                              |
-| User name / Password   | The user created above                                                                                                                                              |
-| Router status interval | How often connection state and throughput are read, 15 s by default. Addresses, WLAN and network devices are read every 30 s.                                       |
-| Smart home interval    | How often all smart home devices are read in one request, 60 s by default. After a smart home action the state is read again right away. 0 switches smart home off. |
+| Field                                        | Meaning                                                                                                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Address                                      | Where the box is, e.g. `192.168.178.1` or `https://xxxxxxxxxxxxxxxx.myfritz.net:43167`                                                                              |
+| Accept the certificate the box signed itself | Only for an internet address without a valid certificate, see below. Off by default.                                                                                |
+| User name / Password                         | The user created above                                                                                                                                              |
+| Router status interval                       | How often connection state and throughput are read, 15 s by default. Addresses, WLAN and network devices are read every 30 s.                                       |
+| Smart home interval                          | How often all smart home devices are read in one request, 60 s by default. After a smart home action the state is read again right away. 0 switches smart home off. |
 
 The address decides everything else: `https://` switches on encryption, a number after the colon is the port, and without one the standard port is used (80, or 443 with `https://`). How TR-064 is reached is found out automatically when connecting.
 
@@ -32,7 +33,7 @@ A FRITZ!Box that is not in the same network as Companion is reached through its 
 3. Look up the **port** of the remote access under _Internet > MyFRITZ! Account_ (_Internet > MyFRITZ!-Konto_). The box picks this port itself and it differs from box to box.
 4. Enter the address as `https://<name>:<port>`, e.g. `https://xxxxxxxxxxxxxxxx.myfritz.net:43167` or `https://studio.example-dyndns.org:43167`.
 
-Over the internet the box only speaks HTTPS, and everything (login, smart home and TR-064) goes through that one port. The IPv6 address and prefix and the UPnP throughput fallback are not available this way; everything else is.
+Over the internet the box only speaks HTTPS, and everything (login, smart home and TR-064) goes through that one port. Its certificate is checked there, so nobody on the way (e.g. on the Wi-Fi of a venue) can read along. A MyFRITZ! name gets a valid certificate from the box itself. For another dynamic DNS name or an IP address the box can only offer a certificate it signed itself; the connection then names the certificate as the problem, and ticking **Accept the certificate the box signed itself** lets it through. Only do that on networks you trust. In the home network the box's own certificate is always accepted. The IPv6 address and prefix and the UPnP throughput fallback are not available this way; everything else is.
 
 ### Variables
 

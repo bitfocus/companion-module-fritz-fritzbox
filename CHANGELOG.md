@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1
+
+Fixes from the Bitfocus review of 1.0.0:
+
+- A user without the Smart Home right no longer opens a new session on the box with every smart home read. The module sees the missing right in the login answer, and a session the box refuses is also logged out there.
+- A user without the "FRITZ!Box Settings" right gets a warning on the connection, instead of OK with empty router values.
+- Over the internet the HTTPS certificate is checked. MyFRITZ! names have a valid one; for other names or an IP address, the new setting "Accept the certificate the box signed itself" lets the box's own certificate through. In the home network nothing changes.
+- The new WLAN password and the new WLAN name take variables, e.g. `$(custom:guest_pw)`.
+- The WLAN choices use the keys of the variables (`24ghz`, `5ghz`, `6ghz`), so a typed or computed value works and a button means the same band on another model. Buttons saved with the old ids (`WLANConfiguration2`) keep working.
+- Templates, scenarios and routines can also be typed in by name, in the actions and in the "routine enabled" feedback.
+- A mobile connection switched off on the box shows as `false` in `connection_mobile_enabled` and `connection_wan2_enabled`, instead of the variables disappearing.
+- After the address is changed, the diagnostics report no longer lists requests to the previous address.
+- The "Connected to" log line names the box model again.
+
 ## 1.0.0
 
 First stable version. Router status over TR-064, smart home over the REST API (FRITZ!OS 8.20 and later) or the AHA-HTTP interface (older boxes), event actions and the diagnostics report, as in the betas. Tested with a FRITZ!Box 6660 Cable (FRITZ!OS 8.40) and a FRITZ!Box 7490 (FRITZ!OS 7.62), in the home network and over MyFRITZ!.

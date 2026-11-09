@@ -222,6 +222,10 @@ export async function startFakeBox(options = {}) {
 		lineUp: options.lineUp ?? true,
 		/** A user without the Smart Home right: the REST API refuses with code 3001 even with a valid SID. */
 		smartHomeForbidden: options.smartHomeForbidden ?? false,
+		/** A user without the "FRITZ!Box Settings" right: TR-064 takes the login and refuses the actions (606). */
+		settingsForbidden: options.settingsForbidden ?? false,
+		/** Whether the mobile connection of the stick is switched on (1) or off (0). */
+		mobileEnabled: 1,
 		/** The REST API answering the overview with an empty body. */
 		emptyOverview: options.emptyOverview ?? false,
 		/** Without the REST API: answer like FRITZ!OS 7.x (400, code 201) instead of 404. */
@@ -253,7 +257,8 @@ export async function startFakeBox(options = {}) {
 
 	const sessionInfo = (sid) =>
 		`<?xml version="1.0" encoding="utf-8"?><SessionInfo><SID>${sid}</SID><Challenge>${state.challenge}</Challenge>` +
-		'<BlockTime>0</BlockTime><Rights><Name>Dial</Name><Access>2</Access><Name>HomeAuto</Name><Access>2</Access>' +
+		'<BlockTime>0</BlockTime><Rights><Name>Dial</Name><Access>2</Access>' +
+		(state.smartHomeForbidden ? '' : '<Name>HomeAuto</Name><Access>2</Access>') +
 		'<Name>BoxAdmin</Name><Access>2</Access></Rights><Users><User last="1">companion</User></Users></SessionInfo>'
 
 	const readBody = (req) =>
@@ -416,7 +421,12 @@ export async function startFakeBox(options = {}) {
 			return {}
 		}
 		if (path === '/upnp/control/x_wanmobileconn' && action === 'GetInfo')
-			return { NewEnabled: 1, NewStatus: 'PIN successful', NewPINFailureCount: 0, NewPUKFailureCount: 0 }
+			return {
+				NewEnabled: state.mobileEnabled,
+				NewStatus: 'PIN successful',
+				NewPINFailureCount: 0,
+				NewPUKFailureCount: 0,
+			}
 		if (path === '/upnp/control/x_wanmobileconn' && action === 'GetInfoEx')
 			return {
 				NewCurrentAccessTechnology: 'LTE',
@@ -506,6 +516,7 @@ export async function startFakeBox(options = {}) {
 					.replace(/&quot;/g, '"')
 					.replace(/&apos;/g, "'")
 					.replace(/&amp;/g, '&')
+			if (state.settingsForbidden) return send(500, soapFault(606, 'Action Not Authorized'))
 			const result = soap(url.pathname, action, args)
 			if (!result) return send(500, soapFault(401, 'Invalid Action'))
 			return send(200, soapResult(action, result))
@@ -531,6 +542,7 @@ export async function startFakeBox(options = {}) {
 			if (!state.aha) return send(404, 'Not Found', 'text/html')
 			// AHA takes the session id as a query parameter and answers a bad one with 403.
 			if (!state.sids.has(url.searchParams.get('sid'))) return send(403, 'Forbidden', 'text/plain')
+			if (state.smartHomeForbidden) return send(403, 'Forbidden', 'text/plain')
 			const answer = ahaCommand(state.ahaState, url.searchParams)
 			if (answer === undefined) return send(400, 'Bad Request', 'text/plain')
 			return send(200, answer, answer.startsWith('<') ? 'text/xml' : 'text/plain; charset=utf-8')

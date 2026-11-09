@@ -319,7 +319,15 @@ export class RouterReader {
 	readonly #igd: Tr064Client | undefined
 	/** Areas the box has shown it does not offer, so they are not asked again. */
 	readonly #unsupported = new Set<string>()
+	/** Areas the user has no right for, a subset of the unsupported ones. */
+	readonly #missingRight = new Set<string>()
 	#connectionServiceChecked = false
+
+	/** Whether the user lacks the right for any of these areas. */
+	lacksRightFor(areas: Iterable<string>): boolean {
+		for (const area of areas) if (this.#missingRight.has(area)) return true
+		return false
+	}
 
 	/** The TR-064 client in use, for the diagnostics report. */
 	get tr064(): Tr064Client {
@@ -529,7 +537,10 @@ export class RouterReader {
 					cells: (ex.NewCellList ?? '').match(/<Cell>/g)?.length ?? 0,
 					uptime: tr064Number(ex.NewUptime),
 				}
-				state.mobile = hasMobileHardware(mobile) ? mobile : undefined
+				if (hasMobileHardware(mobile)) state.mobile = mobile
+				// Switched off, the box tells nothing about the stick. One seen before is still there, now off.
+				else if (!enabled && state.mobile) state.mobile = { ...mobile, simStatus: state.mobile.simStatus }
+				else state.mobile = undefined
 			})
 		}
 
@@ -715,6 +726,7 @@ export class RouterReader {
 			if (error instanceof Tr064Fault && (error.isUnknownAction || error.isMissingRight)) {
 				// Not available on this box or for this user: report once, then stop asking.
 				this.#unsupported.add(area)
+				if (error.isMissingRight) this.#missingRight.add(area)
 			}
 			problems.push({ area, error })
 		}

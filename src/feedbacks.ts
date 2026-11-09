@@ -1,8 +1,10 @@
 import { combineRgb, type CompanionInputFieldDropdown, type DropdownChoice } from '@companion-module/base'
 import type ModuleInstance from './main.js'
 import { findHost, type RouterState } from './router.js'
+import { findWlan, wlanKeys } from './variables.js'
 import {
 	activeAlerts,
+	findNamed,
 	findUnit,
 	isOn,
 	READINGS,
@@ -80,19 +82,23 @@ export function unitOption(sh: SmartHomeState, capability?: Capability): Compani
 export function wlanChoices(router: RouterState, withAll = true): DropdownChoice[] {
 	const choices: DropdownChoice[] = [{ id: 'guest', label: 'Guest WLAN' }]
 	if (withAll) choices.push({ id: 'all', label: 'All WLAN (like the WLAN button)' })
+	const keys = wlanKeys(router.wlans)
 	for (const wlan of router.wlans) {
 		if (wlan.guest) continue
-		choices.push({ id: wlan.serviceId, label: `WLAN ${wlan.band || wlan.index}${wlan.ssid ? ` (${wlan.ssid})` : ''}` })
+		choices.push({
+			id: keys.get(wlan.serviceId) ?? wlan.serviceId,
+			label: `WLAN ${wlan.band || wlan.index}${wlan.ssid ? ` (${wlan.ssid})` : ''}`,
+		})
 	}
 	if (withAll) choices.push({ id: 'any', label: 'Any WLAN except guest' })
 	return choices
 }
 
-export function wlanEnabled(router: RouterState, which: string): boolean {
+export function wlanEnabled(router: RouterState, which: unknown): boolean {
 	if (which === 'guest') return router.wlans.some((wlan) => wlan.guest && wlan.enabled)
 	if (which === 'any') return router.wlans.some((wlan) => !wlan.guest && wlan.enabled)
 	if (which === 'all') return router.wlanGlobalEnabled ?? router.wlans.some((wlan) => wlan.enabled)
-	return router.wlans.find((wlan) => wlan.serviceId === which)?.enabled ?? false
+	return findWlan(router.wlans, which)?.enabled ?? false
 }
 
 export function hostChoices(router: RouterState): DropdownChoice[] {
@@ -386,10 +392,10 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 					choices: triggerChoices(sh),
 					default: String(triggerChoices(sh)[0]?.id ?? ''),
 					allowCustom: true,
+					tooltip: 'Pick a routine, or type its name as shown on the box',
 				},
 			],
-			callback: (feedback) =>
-				self.smartHome.overview.triggers.find((trigger) => trigger.UID === feedback.options.trigger)?.enabled ?? false,
+			callback: (feedback) => findNamed(self.smartHome.overview.triggers, feedback.options.trigger)?.enabled ?? false,
 		},
 	})
 }

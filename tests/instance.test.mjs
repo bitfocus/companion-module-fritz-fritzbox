@@ -204,6 +204,7 @@ console.log('Router status and smart home against a working box')
 		'feedback: routine enabled',
 		feedback(record, 'sh_trigger_enabled', { trigger: 'trg9D4BAB-3FC9C824E' }) === true,
 	)
+	check('feedback: routine by its name', feedback(record, 'sh_trigger_enabled', { trigger: 'Abends aus' }) === true)
 
 	const unitChoices = record.actions.sh_switch.options[0].choices.map((c) => c.id)
 	check('switch action lists only switchable units', unitChoices.length === 1 && unitChoices[0] === '11630 0015376')
@@ -258,6 +259,9 @@ console.log('Router status and smart home against a working box')
 
 	await runAction(record, 'sh_apply_template', { template: 'tmp9D4BAB-3F42B59F6' })
 	check('template applied', box.state.templatesApplied.at(-1) === 'tmp9D4BAB-3F42B59F6')
+	box.state.templatesApplied.length = 0
+	await runAction(record, 'sh_apply_template', { template: 'alles aus' })
+	check('template applied by its name', box.state.templatesApplied.at(-1) === 'tmp9D4BAB-3F42B59F6')
 
 	const putsBefore = box.state.puts.length
 	await runAction(record, 'sh_switch', { unit: 'does-not-exist', mode: 'on' })
@@ -299,6 +303,12 @@ console.log('Router status and smart home against a working box')
 	)
 	await runAction(record, 'wlan_ssid', { wlan: 'guest', ssid: 'Event Gast' })
 	check('guest WLAN renamed', box.state.wlans['/upnp/control/wlanconfig3'].ssid === 'Event Gast')
+	const wlanIds = record.actions.wlan_switch.options[0].choices.map((c) => c.id)
+	check('WLAN choices are the band keys of the variables', wlanIds.includes('5ghz'), JSON.stringify(wlanIds))
+	await runAction(record, 'wlan_ssid', { wlan: '5ghz', ssid: 'Event 5' })
+	check('a WLAN named by its band key', box.state.wlans['/upnp/control/wlanconfig2'].ssid === 'Event 5')
+	await runAction(record, 'wlan_ssid', { wlan: 'WLANConfiguration2', ssid: 'Event 5b' })
+	check('a WLAN named by its service id still works', box.state.wlans['/upnp/control/wlanconfig2'].ssid === 'Event 5b')
 
 	// Devices: Wake on LAN and internet block, chosen from the device list.
 	const deviceChoices = record.actions.host_wake.options[0].choices.map((c) => c.id)
@@ -571,6 +581,42 @@ console.log('User without the Smart Home right')
 	await box.close()
 }
 
+console.log('User without the Smart Home right: no session pile-up')
+{
+	for (const aha of [false, true]) {
+		const box = await startFakeBox({ smartHomeForbidden: true, smartHome: !aha, legacyRestAnswer: aha })
+		const { instance, record } = await startInstance(box.port, { smartHomeInterval: 2 })
+		await waitFor(() => lastStatus(record)?.status === 'unknown_warning', 'smart home warning')
+		await new Promise((resolve) => setTimeout(resolve, 4500))
+		const via = aha ? 'AHA' : 'REST'
+		check(`${via}: one login for several smart home reads`, box.state.loginAttempts === 1, `${box.state.loginAttempts}`)
+		check(`${via}: one session open on the box`, box.state.sids.size === 1, `${box.state.sids.size}`)
+		await instance.destroy()
+		check(`${via}: no session left after the connection ends`, box.state.sids.size === 0, `${box.state.sids.size}`)
+		await box.close()
+	}
+}
+
+console.log('User without the FRITZ!Box Settings right')
+{
+	const box = await startFakeBox({ settingsForbidden: true })
+	const { instance, record } = await startInstance(box.port, { pollInterval: 2 })
+	await waitFor(() => record.variables.smarthome_units >= 6, 'smart home still works')
+	await new Promise((resolve) => setTimeout(resolve, 2500))
+	const status = lastStatus(record)
+	check(
+		'the connection shows a warning that names the right, also after the next read',
+		status?.status === 'unknown_warning' && /FRITZ!Box Settings/.test(status.message ?? ''),
+		JSON.stringify(status),
+	)
+	check(
+		'the hint is in the log, not only in the debug log',
+		record.logs.some((l) => l.level === 'warn' && /FRITZ!Box Settings/.test(l.message)),
+	)
+	await instance.destroy()
+	await box.close()
+}
+
 console.log('Empty smart home overview')
 {
 	const box = await startFakeBox({ emptyOverview: true })
@@ -653,6 +699,58 @@ console.log('Box reached over MyFRITZ!-style remote access')
 	check('web_url keeps the port', record.variables.device_web_url === `https://127.0.0.1:${box.port}`)
 	check('status ok', lastStatus(record)?.status === 'ok', JSON.stringify(lastStatus(record)))
 	await instance.destroy()
+	await box.close()
+}
+
+console.log('Mobile connection switched off')
+{
+	const box = await startFakeBox()
+	const { Tr064Client } = await import(`${D}/tr064.js`)
+	const { RouterReader, createRouterState } = await import(`${D}/router.js`)
+	const { routerVariableValues } = await import(`${D}/variables.js`)
+	const tr064 = new Tr064Client({
+		host: '127.0.0.1',
+		port: box.port,
+		https: false,
+		username: USER,
+		password: PASSWORD,
+		timeout: 5000,
+	})
+	const reader = new RouterReader(tr064, undefined)
+	const state = createRouterState()
+	await reader.readSlow(state, false)
+	check('the stick is seen while on', state.mobile?.enabled === true)
+	box.state.mobileEnabled = 0
+	await reader.readSlow(state, false)
+	const values = routerVariableValues(state)
+	check(
+		'switched off it stays, as off',
+		values.connection_mobile_enabled === 'false' && values.connection_wan2_enabled === 'false',
+		JSON.stringify([values.connection_mobile_enabled, values.connection_wan2_enabled]),
+	)
+	await box.close()
+}
+
+console.log('HTTPS certificates')
+{
+	const box = await startFakeBox({ remote: true })
+	const { httpCall, CertificateError } = await import(`${D}/http.js`)
+	const request = {
+		host: '127.0.0.1',
+		port: box.port,
+		https: true,
+		method: 'GET',
+		path: '/login_sid.lua',
+		timeout: 5000,
+	}
+	const accepted = await httpCall(request).catch((error) => error)
+	check('without the check the certificate the box signed itself is accepted', accepted?.status === 200)
+	const refused = await httpCall({ ...request, verifyCertificate: true }).catch((error) => error)
+	check(
+		'with the check it is refused, with a hint to the setting',
+		refused instanceof CertificateError && /Accept the certificate the box signed itself/.test(refused.message),
+		String(refused?.message ?? refused?.status),
+	)
 	await box.close()
 }
 

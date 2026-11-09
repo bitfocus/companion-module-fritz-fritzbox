@@ -4,6 +4,8 @@ import { isIP } from 'node:net'
 export type ModuleConfig = {
 	/** The address as typed: 192.168.178.1, fritz.box or https://xxxx.myfritz.net:43167 */
 	host: string
+	/** Accept a self-signed certificate over the internet; in the home network it always is. */
+	acceptOwnCertificate: boolean
 	username: string
 	/** Seconds between reads of connection state and throughput. */
 	pollInterval: number
@@ -18,6 +20,7 @@ export type ModuleSecrets = {
 
 export const DEFAULT_CONFIG: ModuleConfig = {
 	host: '192.168.178.1',
+	acceptOwnCertificate: false,
 	username: '',
 	pollInterval: 15,
 	smartHomeInterval: 60,
@@ -102,6 +105,15 @@ export function isHomeNetworkHost(host: string): boolean {
 	return /\.(box|local|lan|home|internal|localdomain|intranet)$/.test(name) || name === 'localhost'
 }
 
+/**
+ * Whether HTTPS certificates are checked. In the home network the box can only offer one it signed
+ * itself; over the internet an unchecked certificate would let anyone in the path read along, so it
+ * is only accepted when the user says so.
+ */
+export function verifiesCertificate(address: BoxAddress, acceptOwnCertificate: boolean): boolean {
+	return !address.homeNetwork && !acceptOwnCertificate
+}
+
 /** The address of the web interface as a URL, the default port left out. */
 export function webUrlFor(address: BoxAddress | undefined): string {
 	if (!address) return ''
@@ -139,6 +151,18 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			width: 12,
 			default: DEFAULT_CONFIG.host,
 			regex: '/^\\S*$/',
+		},
+		{
+			type: 'checkbox',
+			id: 'acceptOwnCertificate',
+			label: 'Accept the certificate the box signed itself',
+			tooltip:
+				'Only matters for an internet address with https://. MyFRITZ! names get a valid certificate and ' +
+				'need nothing here. For another dynamic DNS name or an IP address the box can only offer a ' +
+				'certificate it signed itself, which is then refused. Tick this to accept it, but only on networks ' +
+				'you trust: anyone in the path could read along. In the home network the box is always accepted.',
+			width: 12,
+			default: DEFAULT_CONFIG.acceptOwnCertificate,
 		},
 		{
 			type: 'textinput',

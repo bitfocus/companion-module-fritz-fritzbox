@@ -50,6 +50,8 @@ export interface Tr064Options {
 	username: string
 	password: string
 	timeout: number
+	/** Check the HTTPS certificate, see HttpRequestOptions. */
+	verifyCertificate?: boolean
 	/** tr64desc.xml for TR-064, igddesc.xml for the unauthenticated UPnP IGD services. */
 	descriptionPath?: string
 	/**
@@ -281,12 +283,12 @@ export class Tr064Client {
 		headers: Record<string, string>,
 		body?: string,
 	): Promise<HttpResponse> {
-		const { host, port, https, timeout, username, password } = this.#options
+		const { host, port, https, timeout, username, password, verifyCertificate } = this.#options
 		const attempt = async (): Promise<HttpResponse> => {
 			const withAuth = { ...headers }
 			if (this.#challenge)
 				withAuth.Authorization = digestAuthorization(this.#challenge, username, password, method, path)
-			return httpCall({ host, port, https, method, path, headers: withAuth, body, timeout })
+			return httpCall({ host, port, https, method, path, headers: withAuth, body, timeout, verifyCertificate })
 		}
 
 		let res = await attempt()

@@ -182,6 +182,20 @@ export function wlanKeys(wlans: WlanInfo[]): Map<string, string> {
 	return keys
 }
 
+/**
+ * The WLAN an option names: by the key the variables use (24ghz, 5ghz, 6ghz, guest), so the same
+ * button works on another model, or by its service id (WLANConfiguration2), as typed or saved earlier.
+ */
+export function findWlan(wlans: WlanInfo[], which: unknown): WlanInfo | undefined {
+	const name = (typeof which === 'string' || typeof which === 'number' ? String(which) : '').trim().toLowerCase()
+	if (!name) return undefined
+	const keys = wlanKeys(wlans)
+	return (
+		wlans.find((wlan) => keys.get(wlan.serviceId) === name) ??
+		wlans.find((wlan) => wlan.serviceId.toLowerCase() === name)
+	)
+}
+
 function addAll(definitions: Definitions, entries: Record<string, string>): void {
 	for (const [id, name] of Object.entries(entries)) definitions[id] = { name }
 }

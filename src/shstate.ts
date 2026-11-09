@@ -109,6 +109,16 @@ export function findUnit(state: SmartHomeState, uid: unknown): ShUnit | undefine
 	)
 }
 
+/** A template or routine by its UID, or by its name as typed or coming from an expression. */
+export function findNamed<T extends { UID: string; name: string }>(list: T[], value: unknown): T | undefined {
+	const wanted = (typeof value === 'string' || typeof value === 'number' ? String(value) : '').trim()
+	if (!wanted) return undefined
+	return (
+		list.find((entry) => entry.UID === wanted) ??
+		list.find((entry) => entry.name.toLowerCase() === wanted.toLowerCase())
+	)
+}
+
 export function deviceOfUnit(state: SmartHomeState, unit: ShUnit): ShDevice | undefined {
 	if (!unit.deviceUid) return undefined
 	return state.overview.devices.find((device) => device.UID === unit.deviceUid)

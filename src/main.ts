@@ -9,6 +9,7 @@ import {
 	DEFAULT_CONFIG,
 	GetConfigFields,
 	parseAddress,
+	verifiesCertificate,
 	webUrlFor,
 	type BoxAddress,
 	type ModuleConfig,
@@ -473,8 +474,10 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		// when the box shows the same devices as before.
 		this.#smartHomeFingerprint = ''
 		this.#definitionsFingerprint = ''
-		// A report of the previous settings would describe another box or route.
+		// A report of the previous settings would describe another box or route, and only the current
+		// address is masked in it.
 		this.#diagnosticsReport = undefined
+		this.#exchanges.clear()
 
 		const { username } = this.config
 		const address = parseAddress(this.config.host)
@@ -501,6 +504,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			port: address.port,
 			https: address.https,
 			timeout: REQUEST_TIMEOUT_MS,
+			verifyCertificate: this.#verifyCertificate(address),
 		}
 		this.#session = new FritzSession(web, username, this.secrets.password)
 
@@ -560,12 +564,17 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			username: this.config.username,
 			password: this.secrets.password,
 			timeout: REQUEST_TIMEOUT_MS,
+			verifyCertificate: this.#verifyCertificate(address),
 		}
 		if (route === 'web-port') {
 			return new Tr064Client({ ...common, port: address.port, https: true, pathPrefix: REMOTE_TR064_PREFIX })
 		}
 		if (!address.https) return new Tr064Client({ ...common, port: this.tr064PlainPort, https: false })
 		return new Tr064Client({ ...common, port: await this.#securityPort(address.host), https: true })
+	}
+
+	#verifyCertificate(address: BoxAddress): boolean {
+		return verifiesCertificate(address, Boolean(this.config.acceptOwnCertificate))
 	}
 
 	/**
@@ -651,10 +660,18 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 
 			// The connection state is known now, so it is shown at once. The slow part (addresses,
 			// WLAN, a host list of maybe hundreds of devices) can take a while over the internet.
-			this.#clearProblem('router')
-			if (!this.connected) this.log('info', `Connected to ${this.router.model || this.config.host}`)
+			const firstContact = !this.connected
 			this.connected = true
-			this.#setStatus('router', InstanceStatus.Ok)
+			// Without the "FRITZ!Box Settings" right the box takes the login and refuses the reads, which
+			// would otherwise look like a box that is fine but has nothing to say.
+			if (reader.lacksRightFor(ESSENTIAL_AREAS)) {
+				const message = 'The FRITZ!Box user lacks the "FRITZ!Box Settings" right, so the router status stays empty'
+				this.#logProblem('router', 'permission', 'warn', message)
+				this.#setStatus('router', InstanceStatus.UnknownWarning, message)
+			} else {
+				this.#clearProblem('router')
+				this.#setStatus('router', InstanceStatus.Ok)
+			}
 			this.#publishRouter(address)
 
 			const now = Date.now()
@@ -666,6 +683,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				if (withDeviceInfo) this.#lastDeviceInfo = now
 				this.#publishRouter(address)
 			}
+			// Logged after the slow part, which reads the model.
+			if (firstContact) this.log('info', `Connected to ${this.router.model || this.config.host}`)
 
 			this.#reportProblems(problems)
 		} catch (error) {

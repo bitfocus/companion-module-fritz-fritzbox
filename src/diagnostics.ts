@@ -28,6 +28,11 @@ export class ExchangeLog {
 	entries(): Exchange[] {
 		return [...this.#entries]
 	}
+
+	/** Forgets everything, e.g. requests to an address that is no longer the box's and so not masked. */
+	clear(): void {
+		this.#entries.length = 0
+	}
 }
 
 /** Removes session ids from paths: list files the box hands out carry one in the query. */

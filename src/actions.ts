@@ -1,8 +1,9 @@
 import type { DropdownChoice } from '@companion-module/base'
 import type ModuleInstance from './main.js'
 import { hostChoices, unitOption, wlanChoices } from './feedbacks.js'
-import { findHost, randomWlanPassword, wlanPasswordProblem, wlanSsidProblem, type WlanInfo } from './router.js'
-import { findUnit, isOn, setPointOf, templateChoices, triggerChoices } from './shstate.js'
+import { findHost, randomWlanPassword, wlanPasswordProblem, wlanSsidProblem } from './router.js'
+import { findNamed, findUnit, isOn, setPointOf, templateChoices, triggerChoices } from './shstate.js'
+import { findWlan } from './variables.js'
 import type { ShUnit, ShUnitUpdate } from './smarthome.js'
 
 type NoOptions = Record<string, never>
@@ -106,12 +107,6 @@ export function diagnosticsUrl(bindIp: string, allIp: string, bindPort: string, 
 	const port = /^\d+$/.test(bindPort.trim()) ? bindPort.trim() : '8000'
 	const host = ip.includes(':') ? `[${ip}]` : ip
 	return `http://${host}:${port}${path}`
-}
-
-/** The WLAN an action names: the guest network by role, the others by their service id. */
-export function findWlan(wlans: WlanInfo[], which: string): WlanInfo | undefined {
-	if (which === 'guest') return wlans.find((wlan) => wlan.guest)
-	return wlans.find((wlan) => wlan.serviceId === which)
 }
 
 export function UpdateActions(self: ModuleInstance): void {
@@ -410,16 +405,19 @@ export function UpdateActions(self: ModuleInstance): void {
 					choices: templateChoices(sh),
 					default: String(templateChoices(sh)[0]?.id ?? ''),
 					allowCustom: true,
+					tooltip: 'Pick a template or scenario, or type its name as shown on the box',
 				},
 			],
 			callback: async (action) => {
-				const uid = action.options.template
+				const typed = String(action.options.template ?? '').trim()
+				const template = findNamed(self.smartHome.overview.templates, typed)
+				// A UID the box knows but the last read did not have yet goes through as it is.
+				const uid = template?.UID ?? typed
 				if (!uid) {
 					self.log('warn', 'Apply template: no template selected')
 					return
 				}
-				const name = self.smartHome.overview.templates.find((template) => template.UID === uid)?.name ?? uid
-				await self.runSmartHome(`Apply template ${name}`, async (client) => client.applyTemplate(uid))
+				await self.runSmartHome(`Apply template ${template?.name ?? uid}`, async (client) => client.applyTemplate(uid))
 			},
 		},
 
@@ -433,6 +431,7 @@ export function UpdateActions(self: ModuleInstance): void {
 					choices: triggerChoices(sh),
 					default: String(triggerChoices(sh)[0]?.id ?? ''),
 					allowCustom: true,
+					tooltip: 'Pick a routine, or type its name as shown on the box',
 				},
 				{
 					id: 'mode',
@@ -444,8 +443,9 @@ export function UpdateActions(self: ModuleInstance): void {
 				},
 			],
 			callback: async (action) => {
-				const uid = action.options.trigger
-				const trigger = self.smartHome.overview.triggers.find((t) => t.UID === uid)
+				const typed = String(action.options.trigger ?? '').trim()
+				const trigger = findNamed(self.smartHome.overview.triggers, typed)
+				const uid = trigger?.UID ?? typed
 				const enabled = resolveSwitch(action.options.mode, trigger?.enabled)
 				if (!uid || enabled === undefined) {
 					self.log('warn', `Routine: ${uid ? `the state of ${uid} is unknown` : 'no routine selected'}`)
@@ -596,6 +596,7 @@ export function UpdateActions(self: ModuleInstance): void {
 					type: 'textinput',
 					label: 'New password (8 to 63 characters)',
 					default: '',
+					useVariables: true,
 					isVisibleExpression: `$(options:mode) == 'set'`,
 				},
 				{
@@ -641,7 +642,13 @@ export function UpdateActions(self: ModuleInstance): void {
 					default: 'guest',
 					allowCustom: true,
 				},
-				{ id: 'ssid', type: 'textinput', label: 'New name (up to 32 characters)', default: '' },
+				{
+					id: 'ssid',
+					type: 'textinput',
+					label: 'New name (up to 32 characters)',
+					default: '',
+					useVariables: true,
+				},
 			],
 			callback: async (action) => {
 				const wlan = findWlan(self.router.wlans, action.options.wlan)

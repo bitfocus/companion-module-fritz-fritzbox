@@ -14,12 +14,17 @@ export const NO_SID = '0000000000000000'
  */
 export const LOGIN_RETRY_MS = 60_000
 
+/** The name of the "Smart Home" right in the login answer. */
+export const SMART_HOME_RIGHT = 'HomeAuto'
+
 /** Where to reach the web interface of the box. */
 export interface WebEndpoint {
 	host: string
 	port: number
 	https: boolean
 	timeout: number
+	/** Check the HTTPS certificate, see HttpRequestOptions. */
+	verifyCertificate?: boolean
 }
 
 /** The parts of the login page this module reads. */
@@ -127,9 +132,22 @@ export class FritzSession {
 		return this.#login()
 	}
 
-	/** Drops a SID the box has refused, so the next request logs in again. */
+	/**
+	 * Whether the current session lacks a right. Only a session the box has granted can tell; before
+	 * the first login, or when the box lists no rights at all, nothing is known to be missing.
+	 */
+	lacksRight(name: string): boolean {
+		return this.#sid !== NO_SID && Object.keys(this.#rights).length > 0 && !this.#rights[name]
+	}
+
+	/**
+	 * Drops a SID the box has refused, so the next request logs in again. The box is told to end it
+	 * as well, in case it still holds it: a session it refused for a missing right is still open.
+	 */
 	invalidate(rejected: string): void {
-		if (this.#sid === rejected) this.#sid = NO_SID
+		if (this.#sid !== rejected) return
+		this.#sid = NO_SID
+		void this.#post(`logout=1&sid=${rejected}`).catch(() => undefined)
 	}
 
 	/** Ends the session on the box, so it does not hold one of its few slots for twenty minutes. */
@@ -206,7 +224,7 @@ export class FritzSession {
 		return res.body
 	}
 
-	#base(): { host: string; port: number; https: boolean; timeout: number } {
+	#base(): WebEndpoint {
 		return { ...this.#endpoint }
 	}
 }

@@ -12,7 +12,7 @@ const { adjust, clampSetPoint, resolveSwitch, endTimeIn } = await import(`${D}/a
 const { compare, alertMatches, wlanEnabled } = await import(`${D}/feedbacks.js`)
 const { routerVariableValues, formatUptime } = await import(`${D}/variables.js`)
 const { describeErrors } = await import(`${D}/smarthome.js`)
-const { parseAddress, isHomeNetworkHost, webUrlFor } = await import(`${D}/config.js`)
+const { parseAddress, isHomeNetworkHost, webUrlFor, verifiesCertificate } = await import(`${D}/config.js`)
 const { tr064Routes } = await import(`${D}/main.js`)
 const { listFilePath, connectedProvider, randomWlanPassword, wlanPasswordProblem, wlanSsidProblem } = await import(
 	`${D}/router.js`
@@ -178,14 +178,20 @@ eq('compare', [compare(5, 'above', 4), compare(5, 'below', 4), compare(undefined
 eq('alerts: any ignores closed', [alertMatches(['closed'], 'any'), alertMatches(['open'], 'any')], [false, true])
 const router = {
 	wlans: [
-		{ serviceId: 'WLANConfiguration1', enabled: true, guest: false },
-		{ serviceId: 'WLANConfiguration3', enabled: false, guest: true },
+		{ serviceId: 'WLANConfiguration1', enabled: true, guest: false, band: '2.4 GHz' },
+		{ serviceId: 'WLANConfiguration3', enabled: false, guest: true, band: '2.4 GHz' },
 	],
 }
 eq(
 	'wlan feedback',
-	[wlanEnabled(router, 'guest'), wlanEnabled(router, 'any'), wlanEnabled(router, 'WLANConfiguration1')],
-	[false, true, true],
+	[
+		wlanEnabled(router, 'guest'),
+		wlanEnabled(router, 'any'),
+		wlanEnabled(router, 'WLANConfiguration1'),
+		wlanEnabled(router, '24ghz'),
+		wlanEnabled(router, '5ghz'),
+	],
+	[false, true, true, true, false],
 )
 
 // --- Variables ---
@@ -371,6 +377,8 @@ eq(
 	exchanges.entries().map((e) => e.ms),
 	[2, 3, 4],
 )
+exchanges.clear()
+eq('the request log can be cleared', exchanges.entries(), [])
 
 // --- WLAN passwords and names ---
 eq(
@@ -540,6 +548,19 @@ eq(
 	'an out-of-range character code stays as written',
 	decodeXmlEntities('a&#99999999;b&#x110000;c&#228;'),
 	'a&#99999999;b&#x110000;cä',
+)
+
+// --- Findings of the Bitfocus review of 1.0.0 ---
+const certificateChecked = (host, accept) => verifiesCertificate(parseAddress(host), accept)
+eq(
+	'certificates: checked over the internet, unless accepted; never in the home network',
+	[
+		certificateChecked('https://abc.myfritz.net:43167', false),
+		certificateChecked('https://abc.myfritz.net:43167', true),
+		certificateChecked('https://192.168.178.1', false),
+		certificateChecked('https://fritz.box', false),
+	],
+	[true, false, false, false],
 )
 
 console.log(failures === 0 ? '\nAll checks passed' : `\n${failures} check(s) failed`)
